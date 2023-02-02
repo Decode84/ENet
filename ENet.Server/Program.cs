@@ -6,6 +6,8 @@ namespace ENet.Server;
 
 internal class Server : EServer
 {
+    private EClient _socket;
+    
     public Server(ServerConfiguration configuration) : base(configuration)
     {
     }
@@ -23,12 +25,18 @@ internal class Server : EServer
     protected override void OnConnected(EClient socket)
     {
         Console.WriteLine("Client connected " + socket.Ip);
+        _socket = socket;
     }
 
     protected override void OnReceivedData(byte[] buffer, long offset, long size)
      {
          string message = Encoding.UTF8.GetString(buffer, (int)offset, (int)size);
          Console.WriteLine("Received message: " + message);
+
+         // Respond to the client
+         string response = "Server: You said " + message;
+         byte[] responseBytes = Encoding.UTF8.GetBytes(response);
+         _socket.Send(responseBytes, 0, responseBytes.Length);
      }
 }
 

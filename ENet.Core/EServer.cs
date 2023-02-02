@@ -44,7 +44,7 @@ public abstract class EServer : IDisposable
         // If the server is already running, throw an exception
         if (IsRunning)
             throw new InvalidOperationException("Server is already running");
-
+        
         try
         {
             // Bind the socket to a local IP address and port
@@ -99,7 +99,7 @@ public abstract class EServer : IDisposable
         await _acceptProcessor.StartAcceptAsync();
     }
     
-        /// <summary>
+    /// <summary>
     /// Event handler for the Completed event of a SocketAsyncEventArgs 
     /// </summary>
     /// <param name="sender"></param>
