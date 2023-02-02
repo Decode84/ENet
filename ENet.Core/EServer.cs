@@ -33,10 +33,10 @@ public abstract class EServer : IDisposable
         _acceptProcessor.OnAccepted += OnAccepted;
         _acceptProcessor.OnAcceptFailed += OnAcceptFailed;
         
-        // // Create a new ReceiveProcessor instance & add event handlers
-        // _receiveProcessor = new ReceiveProcessor(_socket);
-        // _receiveProcessor.OnReceived += OnReceived;
-        // _receiveProcessor.OnReceivedFailed += OnReceivedFailed;
+        // Create a new ReceiveProcessor instance & add event handlers
+        _receiveProcessor = new ReceiveProcessor(_socket);
+        _receiveProcessor.OnReceived += OnReceived;
+        _receiveProcessor.OnReceivedFailed += OnReceivedFailed;
     }
     
     public async Task StartAsync()
@@ -77,50 +77,92 @@ public abstract class EServer : IDisposable
     /// <param name="e"></param>
     private async void OnAccepted(object? sender, SocketAsyncEventArgs e)
     {
+        // @TODO - Should return some sort of error here
+
+        // If there was an error with the accept operation, return early
+        if (e.SocketError != SocketError.Success) return;
+
+        // var client = e.AcceptSocket;
+        var client = new EClient(e.AcceptSocket);
+        var endPoint = (IPEndPoint)client.Socket.RemoteEndPoint;
+
+        OnConnected(client);
+        
+        // Initialize a SocketAsyncEventArgs object for receiving data
+        var receiveArgs = new SocketAsyncEventArgs();
+        receiveArgs.AcceptSocket = client.Socket;
+
+        // Start receiving data from the client
+        await _receiveProcessor.StartReceiveAsync(receiveArgs);
+
+        // Start listening for new client connections
+        await _acceptProcessor.StartAcceptAsync();
+    }
+    
+        /// <summary>
+    /// Event handler for the Completed event of a SocketAsyncEventArgs 
+    /// </summary>
+    /// <param name="sender"></param>
+    /// <param name="e"></param>
+    private async void OnReceived(object? sender, SocketAsyncEventArgs eventArgs)
+    {
+        // Get the number of bytes transferred in the receive operation
+        long size = eventArgs.BytesTransferred;
+
+        // If the size is 0 or less then the connection has been closed
+        if (size <= 0)
+        {
+            Disconnect(eventArgs);
+            return;
+        }
+
+        // Check if the data received exceeds the rate limit
+        if (!_rateLimiter.HandleData(eventArgs.AcceptSocket?.RemoteEndPoint, size))
+        {
+            Disconnect(eventArgs);
+            return;
+        }
+
         try
         {
-            // If there was an error with the accept operation, return early
-            if (e.SocketError != SocketError.Success) return;
+            // List out the received data
+            var data = new byte[size];
+            Buffer.BlockCopy(eventArgs.Buffer, 0, data, 0, data.Length);
+            OnReceivedData(eventArgs.Buffer, 0, data.Length);
 
-            // var client = e.AcceptSocket;
-            var client = new EClient(e.AcceptSocket);
-            var endPoint = (IPEndPoint)client.Socket.RemoteEndPoint;
-
-            OnConnected(client);
-
-            // Initialize a SocketAsyncEventArgs object for receiving data
-            // var receiveArgs = new SocketAsyncEventArgs();
-            // receiveArgs.AcceptSocket = client.Socket;
-            
-            var connection = new Connection(client, _receiveProcessor, _rateLimiter);
-            await connection.StartAsync();
-
-            // Start receiving data from the client
-            // await _receiveProcessor.StartReceiveAsync(receiveArgs);
+            // Start another receive operation
+            await _receiveProcessor.StartReceiveAsync(eventArgs);
         }
-        catch (Exception exception)
+        catch (Exception e)
         {
-            // Invoke the OnAcceptFailed method
-            OnAcceptFailed(sender, e);
-        }
-        finally
-        {
-            // Start listening for new client connections
-            await _acceptProcessor.StartAcceptAsync();
+            Disconnect(eventArgs);
         }
     }
     
-    
     private void OnAcceptFailed(object? sender, SocketAsyncEventArgs e)
     {
-        Disconnect(e);
     }
     
     private void OnReceivedFailed(object? sender, SocketAsyncEventArgs e)
     {
-        
     }
+    
+    /// <summary>
+    /// Disconnects the connection from the server
+    /// </summary>
+    /// <param name="eventArgs"></param>
+    private static void Disconnect(SocketAsyncEventArgs eventArgs)
+    {
+        // Close the socket
+        eventArgs.AcceptSocket?.Close();
 
+        // Dispose of the SocketAsyncEventArgs instance
+        eventArgs.Dispose();
+
+        // Print a message indicating that the connection was closed
+        Console.WriteLine("Connection closed");
+    }
+    
     /// <summary>
     /// Stops the server.
     /// </summary>
@@ -152,5 +194,5 @@ public abstract class EServer : IDisposable
     protected virtual void OnStopping() {}
     protected virtual void OnStopped() {}
     protected virtual void OnReceivedData(byte[] buffer, long offset, long size) {}
-    protected virtual void OnConnected(EClient socket) {}
+    protected  virtual void OnConnected(EClient socket) {}
 }
